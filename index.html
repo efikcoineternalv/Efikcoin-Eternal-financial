@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+     <img src="https://ipfs://bafybeiel6mzlpf3eq4ffhruexvf5npfncrthj2pjrdwoyr7bqrs4hn4ibi"
+<head>
+<!-- Playables SDK -->
+<script>// Playables SDK v1.0.0
+// Game lifecycle bridge: rAF-based game-ready detection + event communication
+(function() {
+  'use strict';
+
+  // Idempotency: skip if already initialized (e.g., server-side injection
+  // followed by client-side inject-javascript via the Bloks webview component).
+  if (window.playablesSDK) return;
+
+  var HANDLER_NAME = 'playablesGameEventHandler';
+  var ANDROID_BRIDGE_NAME = '_MetaPlayablesBridge';
+  var RAF_FRAME_THRESHOLD = 3;
+
+  var gameReadySent = false;
+  var firstInteractionSent = false;
+  var errorSent = false;
+  var frameCount = 0;
+  var originalRAF = window.requestAnimationFrame;
+
+  // --- Transport Layer ---
+
+  function hasIOSBridge() {
+    return !!(window.webkit &&
+              window.webkit.messageHandlers &&
+              window.webkit.messageHandlers[HANDLER_NAME]);
+  }
+
+  function hasAndroidBridge() {
+    return !!(window[ANDROID_BRIDGE_NAME] &&
+              typeof window[ANDROID_BRIDGE_NAME].postEvent === 'function');
+  }
+
+  function isInIframe() {
+    return !!(window.parent && window.parent !== window);
+  }
+
+  function sendEvent(eventName, payload) {
+    var message = {
+      type: eventName,
+      payload: payload || {},
+      timestamp: Date.now()
+    };
+
+    if (hasIOSBridge()) {
+      try {
+        window.webkit.messageHandlers[HANDLER_NAME].postMessage(message);
+      } catch (e) { /* ignore */ }
+      return;
+    }
+
+    if (hasAndroidBridge()) {
+    try {
+      var p = payload || {};
+      p.__secureToken = window.__fbAndroidBridgeAuthToken || '';
+      p.timestamp = message.timestamp;
+      window[ANDROID_BRIDGE_NAME].postEvent(
+        eventName,
+        JSON.stringify(p)
+      );
+    } catch (e) { /* ignore */ }
+    return;
+  }
+
+    if (isInIframe()) {
+      try {
+        window.parent.postMessage(message, '*');
+      } catch (e) { /* ignore */ }
+      return;
+    }
+  }
+
+  // --- rAF Game-Ready Detection ---
+
+  function onFrame() {
+    if (gameReadySent) return;
+
+    frameCount++;
+    if (frameCount >= RAF_FRAME_THRESHOLD) {
+      gameReadySent = true;
+      sendEvent('game_ready', {
+        frame_count: frameCount,
+        detected_at: Date.now()
+      });
+      return;
+    }
+
+    originalRAF.call(window, onFrame);
+  }
+
+  if (originalRAF) {
+    window.requestAnimationFrame = function(callback) {
+      if (!gameReadySent) {
+        return originalRAF.call(window, function(timestamp) {
+          frameCount++;
+          if (frameCount >= RAF_FRAME_THRESHOLD && !gameReadySent) {
+            gameReadySent = true;
+            sendEvent('game_ready', {
+              frame_count: frameCount,
+              detected_at: Date.now()
+            });
+          }
+          callback(timestamp);
+        });
+      }
+      return originalRAF.call(window, callback);
+    };
+  }
+
+  // --- First User Interaction Detection ---
+
+  function setupFirstInteractionDetection() {
+    var events = ['touchstart', 'mousedown', 'keydown'];
+
+    function onFirstInteraction() {
+      if (firstInteractionSent) return;
+      firstInteractionSent = true;
+      sendEvent('user_interaction_start', null);
+
+      for (var i = 0; i < events.length; i++) {
+        document.removeEventListener(events[i], onFirstInteraction, true);
+      }
+    }
+
+    for (var i = 0; i < events.length; i++) {
+      document.addEventListener(events[i], onFirstInteraction, true);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupFirstInteractionDetection);
+  } else {
+    setupFirstInteractionDetection();
+  }
+
+  // --- Auto Error Capture ---
+
+  window.addEventListener('error', function(event) {
+    if (errorSent) return;
+    errorSent = true;
+    sendEvent('error', {
+      message: event.message || 'Unknown error',
+      source: event.filename || '',
+      lineno: event.lineno || 0,
+      colno: event.colno || 0,
+      auto_captured: true
+    });
+  });
+
+  window.addEventListener('unhandledrejection', function(event) {
+    if (errorSent) return;
+    errorSent = true;
+    var reason = event.reason;
+    sendEvent('error', {
+      message: (reason instanceof Error) ? reason.message : String(reason),
+      type: 'unhandled_promise_rejection',
+      auto_captured: true
+    });
+  });
+
+  // --- Public API ---
+
+  window.playablesSDK = {
+    complete: function(score) {
+      sendEvent('game_ended', {
+        score: score,
+        completed: true
+      });
+    },
+
+    error: function(message) {
+      if (errorSent) return;
+      errorSent = true;
+      sendEvent('error', {
+        message: message || 'Unknown error',
+        auto_captured: false
+      });
+    },
+
+    sendEvent: function(eventName, payload) {
+      if (!eventName || typeof eventName !== 'string') return;
+      sendEvent(eventName, payload);
+    }
+  };
+
+  // Kick off rAF detection in case no game code calls rAF immediately
+  if (originalRAF) {
+    originalRAF.call(window, onFrame);
+  }
+})();</script>
+<!-- PLAYABLE_TOUCH_PATCH_V1 --><script>
+(function() {
+  if (window.__playableTouchPatchInstalled) return;
+  window.__playableTouchPatchInstalled = true;
+  var origAdd = EventTarget.prototype.addEventListener;
+  var blockedTypes = { touchstart: 1, touchmove: 1, wheel: 1 };
+  EventTarget.prototype.addEventListener = function(type, listener, options) {
+    if (blockedTypes[type]) {
+      if (options === undefined || options === null) {
+        options = { passive: true };
+      } else if (typeof options === 'boolean') {
+        options = { capture: options, passive: true };
+      } else {
+        options = Object.assign({}, options, { passive: true });
+      }
+    }
+    return origAdd.call(this, type, listener, options);
+  };
+})();
+</script><script>window.Intl=window.Intl||{};Intl.t=function(s){return(Intl._locale&&Intl._locale[s])||s;};</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Efikcoin Eternal V2 — Trading dApp</title>
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+<style>
+:root{
+  --bg:#070a10; --panel:#10141f; --panel2:#141a29; --gold:#FFD700; --gold2:#B8860B;
+  --text:#e6e9f2; --muted:#8b94ab; --ok:#00d395; --danger:#ff5c5c; --border:#1e2436;
+  --shadow:0 20px 60px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;
+  background:
+    radial-gradient(1000px 600px at 85% -5%, rgba(184,134,11,.18), transparent 60%),
+    radial-gradient(800px 500px at -10% 15%, rgba(255,215,0,.12), transparent 55%),
+    var(--bg);
+  color:var(--text); -webkit-font-smoothing:antialiased;
+}
+a{color:var(--gold);text-decoration:none}
+.topbar{
+  position:sticky; top:0; z-index:50;
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:14px 18px; border-bottom:1px solid var(--border);
+  background:rgba(7,10,16,.65); backdrop-filter:blur(12px);
+}
+.logo{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.4px}
+.logo-badge{
+  width:40px;height:40px;border-radius:12px;
+  background:linear-gradient(135deg,var(--gold),var(--gold2));
+  display:grid;place-items:center;color:#000;font-weight:900;
+  box-shadow:0 10px 30px rgba(255,215,0,.25), inset 0 1px 0 rgba(255,255,255,.3);
+}
+.network{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--panel2);border:1px solid var(--border);border-radius:999px;font-size:12px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 3px rgba(255,92,92,.15)}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 3px rgba(0,211,149,.18)}
+.btn{
+  appearance:none;border:0;cursor:pointer;white-space:nowrap;
+  padding:11px 16px;border-radius:12px;font-weight:700;letter-spacing:.2px;
+  background:linear-gradient(135deg,var(--gold),#f2c14e);color:#0b0b;
+  box-shadow:0 10px 28px rgba(255,215,0,.22);transition:.2s;
+}
+.btn:hover{transform:translateY(-1px);box-shadow:0 14px 34px rgba(255,215,0,.28)}
+.btn.ghost{background:transparent;color:var(--text);border:1px solid var(--border);box-shadow:none}
+.btn.ghost:hover{border-color:var(--gold);color:var(--gold)}
+.container{max-width:1200px;margin:0 auto;padding:26px 18px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.grid-2{display:grid;grid-template-columns:1.15fr 1fr;gap:20px;margin-top:20px}
+.card{
+  background:linear-gradient(180deg, rgba(255,255,255,.03), transparent), var(--panel);
+  border:1px solid var(--border); border-radius:22px; padding:20px; box-shadow:var(--shadow);
+}
+.card h3{margin:0 0 6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.14em}
+.value{font-size:30px;font-weight:800;letter-spacing:.2px}
+.value span{font-size:13px;color:var(--muted);margin-left:8px;font-weight:600}
+.sub{font-size:12px;color:var(--muted);margin-top:6px}
+.tabs{display:flex;background:var(--panel2);border:1px solid var(--border);border-radius:14px;padding:4px;gap:4px}
+.tab{flex:1;text-align:center;padding:10px 12px;border-radius:10px;cursor:pointer;font-weight:700;color:var(--muted);border:1px solid transparent}
+.tab.active{background:linear-gradient(135deg,rgba(255,215,0,.18),rgba(255,215,0,.06));color:var(--gold);border-color:rgba(255,215,0,.28)}
+.field{margin-top:14px}
+.label{font-size:12px;color:var(--muted);margin-bottom:7px;display:flex;justify-content:space-between}
+.input{
+  width:100%; background:#0b1120; color:var(--text); border:1px solid var(--border);
+  padding:14px 14px; border-radius:13px; font-size:16px; outline:none; transition:.2s;
+}
+.input:focus{border-color:var(--gold);box-shadow:0 0 0 4px rgba(255,215,0,.14)}
+.row{display:flex;gap:10px}
+.kpi{display:flex;align-items:center;gap:10px;margin-top:12px;padding:11px 12px;background:var(--panel2);border:1px dashed var(--border);border-radius:12px;font-size:13px}
+.badge{padding:4px 8px;border-radius:999px;background:rgba(255,215,0,.12);border:1px solid rgba(255,215,0,.25);color:var(--gold);font-size:11px;font-weight:700}
+.copy{cursor:pointer;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--panel2);font-size:12px;color:var(--text)}
+.copy:hover{border-color:var(--gold);color:var(--gold)}
+.hint{font-size:12px;color:var(--muted);margin-top:9px}
+.table-wrap{overflow:auto;border:1px solid var(--border);border-radius:16px;margin-top:12px;background:rgba(0,0,0,.15)}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:720px}
+th,td{padding:12px 12px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+th{color:var(--muted);font-weight:700;background:#0c1222;position:sticky;top:0}
+.addr{font-family:ui-monospace, SFMono-Regular, Menlo, monospace;color:var(--gold)}
+.footer{margin-top:38px;padding:22px 0;border-top:1px solid var(--border);color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between}
+.toast{position:fixed;right:16px;bottom:16px;background:#0e1526;border:1px solid var(--border);padding:12px 14px;border-radius:12px;box-shadow:0 12px 34px rgba(0,0,0,.5);opacity:0;transform:translateY(12px);transition:.3s;z-index:200;font-size:13px;max-width:320px}
+.toast.show{opacity:1;transform:translateY(0)}
+.check{
+  width:62px;height:62px;border-radius:50%;margin:6px auto 10px;
+  background:linear-gradient(135deg,var(--gold),var(--gold2));display:grid;place-items:center;color:#000;font-size:30px;
+  box-shadow:0 10px 30px rgba(255,215,0,.3);animation:pop .45s ease;
+}
+@keyframes pop{0%{transform:scale(.6);opacity:.3}100%{transform:scale(1);opacity:1}}
+.switch{display:flex;align-items:center;gap:8px}
+select.lang{
+  background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:10px;font-size:13px
+}
+.tag{font-size:11px;padding:4px 8px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.success{color:var(--ok)}
+.warn{color:#ffcc66}
+@media (max-width:980px){
+  .grid-2{grid-template-columns:1fr}
+  .grid-3{grid-template-columns:1fr}
+  .container{padding:18px 14px}
+  .value{font-size:26px}
+  .topbar{flex-wrap:wrap;gap:10px}
+}
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="logo">
+      <div class="logo-badge">ECE</div>
+      <div>Efikcoin Eternal <span style="color:var(--gold)">V2</span></div>
+      <span class="tag">BSC</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <select id="langSelect" class="lang" title="Language">
+        <option value="en">EN</option>
+        <option value="es">ES</option>
+        <option value="fr">FR</option>
+        <option value="pid">PIDGIN</option>
+      </select>
+      <div class="network"><span id="networkDot" class="dot"></span><span id="networkText">Not connected</span></div>
+      <div id="walletAddress" style="display:none;padding:8px 12px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;font-family:ui-monospace;font-size:13px"></div>
+      <button id="connectBtn" class="btn" data-i18n="connect_wallet">Connect Wallet</button>
+      <button id="disconnectBtn" class="btn ghost" style="display:none" data-i18n="disconnect">Disconnect</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Balances -->
+    <section class="grid-3">
+      <div class="card">
+        <h3>BNB Balance</h3>
+        <div class="value"><span id="bnbBalance">0.0000</span><span>BNB</span></div>
+        <div class="sub">BNB Smart Chain</div>
+      </div>
+      <div class="card">
+        <h3>ECE Balance</h3>
+        <div class="value"><span id="eceBalance">0</span><span>ECE</span></div>
+        <div class="sub">Efikcoin Eternal V2</div>
+      </div>
+      <div class="card">
+        <h3>Treasury Tax Collected</h3>
+        <div class="value"><span id="treasuryBalance">0</span><span>ECE</span></div>
+        <div class="sub">On-chain • Live</div>
+      </div>
+    </section>
+
+    <div class="grid-2">
+      <!-- Deposit -->
+      <section class="card">
+        <h2 style="margin:0 0 12px" data-i18n="deposit">Deposit</h2>
+        <div class="tabs">
+          <div id="tabBnb" class="tab active">BNB → ECE</div>
+          <div id="tabEce" class="tab">ECE to Treasury</div>
+        </div>
+
+        <div id="paneBnb">
+          <div class="field">
+            <div class="label"><span>Amount BNB</span><span class="badge">PancakeSwap</span></div>
+            <input id="bnbAmount" class="input" type="number" placeholder="0.1" step="0.01" min="0">
+          </div>
+          <div class="kpi">
+            <div>Estimated ECE (on-chain quote)</div>
+            <div style="margin-left:auto;font-weight:800;color:var(--gold)" id="eceEstimate">-</div>
+          </div>
+          <button id="swapBtn" class="btn" style="width:100%;margin-top:14px">Deposit & Swap</button>
+          <div class="hint">Opens PancakeSwap with BNB→ECE prefilled. Your swap executes directly on BSC.</div>
+        </div>
+
+        <div id="paneEce" style="display:none">
+          <div class="field">
+            <div class="label">Treasury Address</div>
+            <div class="row">
+              <input id="treasuryAddr" class="input" readonly value="0x676cCf34C191a9D6EFE4B265b84877C619A559d0">
+              <button id="copyTreasury" class="copy">Copy</button>
+            </div>
+          </div>
+          <div class="field">
+            <div class="label">Amount ECE to Deposit</div>
+            <input id="eceDepositAmount" class="input" type="number" placeholder="1000" step="1" min="0">
+          </div>
+          <button id="depositEceBtn" class="btn" style="width:100%;margin-top:14px">Send ECE to Treasury</button>
+          <div class="hint">Direct ERC-20 transfer to treasury. Transparent and irreversible on-chain.</div>
+        </div>
+      </section>
+
+      <!-- Withdraw -->
+      <section class="card">
+        <h2 style="margin:0 0 12px" data-i18n="withdraw">Withdraw</h2>
+        <div class="field">
+          <div class="label">Amount ECE</div>
+          <input id="withdrawAmount" class="input" type="number" placeholder="500" step="1" min="0">
+        </div>
+        <div class="field">
+          <div class="label">Destination BSC Address (any wallet worldwide)</div>
+          <input id="withdrawAddress" class="input" placeholder="0x...">
+        </div>
+        <div class="kpi">
+          <div>Gas Estimate</div>
+          <div style="margin-left:auto" id="gasEstimate">~0.0005 BNB</div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button id="quickTrust" class="btn ghost" style="flex:1">Trust Wallet</button>
+          <button id="quickSafe" class="btn ghost" style="flex:1">SafePal</button>
+        </div>
+        <button id="withdrawBtn" class="btn" style="width:100%;margin-top:14px;background:linear-gradient(135deg,#00d395,#00b07a);box-shadow:0 10px 28px rgba(0,211,149,.25)">Withdraw Now</button>
+        <div id="txStatus" style="margin-top:14px;display:none;text-align:center"></div>
+        <div class="hint">Uses token.transfer() — confirmed in MetaMask. Works with Trust Wallet, SafePal, Binance Wallet, etc.</div>
+      </section>
+    </div>
+
+    <!-- Transparency -->
+    <section class="card" style="margin-top:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <h2 style="margin:0" data-i18n="transparency">Global Transparency</h2>
+        <div class="switch">
+          <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="filterMy"> Filter My Address
+          </label>
+          <button id="refreshTx" class="btn ghost" style="padding:8px 12px">Refresh</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time (UTC)</th><th>From</th><th>To</th><th>Amount ECE</th><th>Tx</th></tr></thead>
+          <tbody id="txTableBody">
+            <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading live transfers…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="hint">Source: BscScan • Contract: <span class="addr">0x09D3DA67bB62B07427A13B5AA8d0fdd08870B2b4</span> • Auto-refresh 20s</div>
+    </section>
+
+    <footer class="footer">
+      <div>© 2025 Efikcoin Eternal V2 — Professional BSC dApp</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <a href="mailto:efikcoineternal@gmail.com">efikcoineternal@gmail.com</a>
+        <a href="https://t.me/efikcoineternal" target="_blank" rel="noopener">Telegram</a>
+        <a href="https://facebook.com" target="_blank" rel="noopener">Facebook</a>
+      </div>
+    </footer>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+<script>
+(function(){
+  const TOKEN_ADDRESS = '0x09D3DA67bB62B07427A13B5AA8d0fdd08870B2b4';
+  const TREASURY_ADDRESS = '0x676cCf34C191a9D6EFE4B265b84877C619A559d0';
+  const WBNB = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
+  const ROUTER_ADDRESS = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
+  const BSC_CHAIN_ID = '0x38';
+  const ERC20_ABI = [
+    "function balanceOf(address) view returns (uint256)",
+    "function transfer(address to, uint256 amount) returns (bool)",
+    "function decimals() view returns (uint8)",
+    "function symbol() view returns (string)"
+  ];
+  const ROUTER_ABI = ["function getAmountsOut(uint amountIn, address[] path) view returns (uint[] amounts)"];
+
+  let provider, signer, account = null, token, tokenDecimals = 18;
+
+  const $ = id => document.getElementById(id);
+  const connectBtn = $('connectBtn'), disconnectBtn = $('disconnectBtn'), walletAddress = $('walletAddress');
+  const networkDot = $('networkDot'), networkText = $('networkText');
+  const bnbBalance = $('bnbBalance'), eceBalance = $('eceBalance'), treasuryBalance = $('treasuryBalance');
+  const tabBnb = $('tabBnb'), tabEce = $('tabEce'), paneBnb = $('paneBnb'), paneEce = $('paneEce');
+  const bnbAmount = $('bnbAmount'), eceEstimate = $('eceEstimate'), swapBtn = $('swapBtn');
+  const treasuryAddr = $('treasuryAddr'), copyTreasury = $('copyTreasury'), eceDepositAmount = $('eceDepositAmount'), depositEceBtn = $('depositEceBtn');
+  const withdrawAmount = $('withdrawAmount'), withdrawAddress = $('withdrawAddress'), gasEstimate = $('gasEstimate'), withdrawBtn = $('withdrawBtn'), txStatus = $('txStatus');
+  const quickTrust = $('quickTrust'), quickSafe = $('quickSafe');
+  const txTableBody = $('txTableBody'), filterMy = $('filterMy'), refreshTx = $('refreshTx');
+  const toastEl = $('toast'), langSelect = $('langSelect');
+
+  const i18n = {
+    en: {connect_wallet:'Connect Wallet', disconnect:'Disconnect', deposit:'Deposit', withdraw:'Withdraw', transparency:'Global Transparency'},
+    es: {connect_wallet:'Conectar Billetera', disconnect:'Desconectar', deposit:'Depósito', withdraw:'Retirar', transparency:'Transparencia Global'},
+    fr: {connect_wallet:'Connecter Wallet', disconnect:'Déconnecter', deposit:'Dépôt', withdraw:'Retirer', transparency:'Transparence Globale'},
+    pid: {connect_wallet:'Connect Wallet', disconnect:'Disconnect', deposit:'Deposit', withdraw:'Withdraw', transparency:'Global Transparency'}
+  };
+  function setLang(l){ document.querySelectorAll('[data-i18n]').forEach(el=>{ const k=el.dataset.i18n; if(i18n[l]&&i18n[l][k]) el.textContent=i18n[l][k]; }); }
+  langSelect.addEventListener('change', e=>setLang(e.target.value));
+
+  function toast(msg){ toastEl.textContent = msg; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'), 3000); }
+  function short(addr){ return addr ? addr.slice(0,6)+'…'+addr.slice(-4) : '' }
+  function toBscScanTx(h){ return `https://bscscan.com/tx/${h}` }
+  function toBscScanAddr(a){ return `https://bscscan.com/address/${a}` }
+
+  async function ensureBSC(){
+    if(!window.ethereum) return;
+    const chainId = await window.ethereum.request({method:'eth_chainId'});
+    if(chainId !== BSC_CHAIN_ID){
+      try{
+        await window.ethereum.request({method:'wallet_switchEthereumChain', params:[{chainId:BSC_CHAIN_ID}]});
+      }catch(e){
+        if(e.code===4902){
+          await window.ethereum.request({method:'wallet_addEthereumChain', params:[{
+            chainId:BSC_CHAIN_ID, chainName:'BNB Smart Chain',
+            nativeCurrency:{name:'BNB',symbol:'BNB',decimals:18},
+            rpcUrls:['https://bsc-dataseed.binance.org/','https://bsc-dataseed1.defibit.io/','https://bsc-dataseed1.ninicoin.io/'],
+            blockExplorerUrls:['https://bscscan.com']
+          }]});
+        }else{ throw e }
+      }
+    }
+    updateNetwork();
+  }
+  async function updateNetwork(){
+    try{
+      const id = await window.ethereum.request({method:'eth_chainId'});
+      const ok = id === BSC_CHAIN_ID;
+      networkDot.classList.toggle('ok', ok);
+      networkText.textContent = ok ? 'BSC Mainnet (56)' : 'Wrong Network';
+      networkText.style.color = ok ? 'var(--ok)' : 'var(--danger)';
+    }catch{ networkText.textContent='Not connected' }
+  }
+
+  async function connectWallet(){
+    if(!window.ethereum){ toast('Please install MetaMask or a BSC wallet'); window.open('https://metamask.io','_blank'); return }
+    provider = new ethers.providers.Web3Provider(window.ethereum, 'any');
+    await provider.send('eth_requestAccounts', []);
+    signer = provider.getSigner();
+    account = await signer.getAddress();
+    await ensureBSC();
+    await initContracts();
+    updateUIConnected();
+    await loadBalances();
+    setListeners();
+    toast('Wallet connected');
+  }
+  function disconnect(){
+    account=null; signer=null; token=null;
+    updateUIDisconnected();
+    bnbBalance.textContent='0.0000'; eceBalance.textContent='0'; treasuryBalance.textContent='0';
+  }
+  function updateUIConnected(){
+    connectBtn.style.display='none'; disconnectBtn.style.display='inline-block';
+    walletAddress.style.display='inline-block'; walletAddress.textContent = short(account);
+    walletAddress.title = account;
+  }
+  function updateUIDisconnected(){
+    connectBtn.style.display='inline-block'; disconnectBtn.style.display='none';
+    walletAddress.style.display='none';
+    networkDot.classList.remove('ok'); networkText.textContent='Not connected'; networkText.style.color='';
+  }
+  async function initContracts(){
+    token = new ethers.Contract(TOKEN_ADDRESS, ERC20_ABI, signer || provider);
+    try{ tokenDecimals = await token.decimals(); }catch{ tokenDecimals = 18 }
+  }
+  async function loadBalances(){
+    if(!provider || !account) return;
+    try{
+      const [bnb, ece, tre] = await Promise.all([
+        provider.getBalance(account),
+        token.balanceOf(account),
+        token.balanceOf(TREASURY_ADDRESS)
+      ]);
+      bnbBalance.textContent = parseFloat(ethers.utils.formatEther(bnb)).toFixed(4);
+      eceBalance.textContent = Number(ethers.utils.formatUnits(ece, tokenDecimals)).toLocaleString(undefined,{maximumFractionDigits:2});
+      treasuryBalance.textContent = Number(ethers.utils.formatUnits(tre, tokenDecimals)).toLocaleString(undefined,{maximumFractionDigits:0});
+    }catch(e){ console.error(e) }
+  }
+  function setListeners(){
+    if(!window.ethereum) return;
+    window.ethereum.removeAllListeners?.('accountsChanged');
+    window.ethereum.removeAllListeners?.('chainChanged');
+    window.ethereum.on('accountsChanged', (accs)=>{ if(accs.length===0) disconnect(); else location.reload() });
+    window.ethereum.on('chainChanged', ()=>location.reload());
+  }
+
+  // Tabs
+  tabBnb.onclick = ()=>{ tabBnb.classList.add('active'); tabEce.classList.remove('active'); paneBnb.style.display='block'; paneEce.style.display='none' }
+  tabEce.onclick = ()=>{ tabEce.classList.add('active'); tabBnb.classList.remove('active'); paneEce.style.display='block'; paneBnb.style.display='none' }
+
+  // Deposit BNB -> estimate
+  let estimateTimer;
+  bnbAmount.addEventListener('input', ()=>{
+    clearTimeout(estimateTimer);
+    const val = parseFloat(bnbAmount.value);
+    if(!val || val<=0){ eceEstimate.textContent='-'; return }
+    estimateTimer = setTimeout(async ()=>{
+      try{
+        const router = new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, provider || new ethers.providers.JsonRpcProvider('https://bsc-dataseed.binance.org/'));
+        const amountIn = ethers.utils.parseEther(String(val));
+        const amounts = await router.getAmountsOut(amountIn, [WBNB, TOKEN_ADDRESS]);
+        const out = Number(ethers.utils.formatUnits(amounts[1], tokenDecimals));
+        eceEstimate.textContent = out.toLocaleString(undefined,{maximumFractionDigits:0}) + ' ECE';
+      }catch(e){ eceEstimate.textContent = '~ market rate'; }
+    }, 350);
+  });
+  swapBtn.onclick = ()=>{
+    const amt = bnbAmount.value && parseFloat(bnbAmount.value)>0 ? bnbAmount.value : '0.1';
+    const url = `https://pancakeswap.finance/swap?inputCurrency=BNB&outputCurrency=${TOKEN_ADDRESS}&exactAmount=${amt}&exactField=INPUT`;
+    window.open(url, '_blank', 'noopener');
+  };
+
+  // Deposit ECE to treasury
+  copyTreasury.onclick = async ()=>{ await navigator.clipboard.writeText(TREASURY_ADDRESS); toast('Treasury address copied') };
+  depositEceBtn.onclick = async ()=>{
+    if(!account) return toast('Connect wallet first');
+    const amt = parseFloat(eceDepositAmount.value);
+    if(!amt || amt<=0) return toast('Enter ECE amount');
+    try{
+      await ensureBSC();
+      const t = token.connect(signer);
+      const tx = await t.transfer(TREASURY_ADDRESS, ethers.utils.parseUnits(String(amt), tokenDecimals));
+      toast('Deposit submitted — confirming...');
+      await tx.wait();
+      toast('ECE deposited to treasury');
+      eceDepositAmount.value='';
+      loadBalances(); fetchTx();
+    }catch(e){ toast(e?.data?.message || e.message || 'Deposit failed') }
+  };
+
+  // Withdraw
+  async function updateGas(){
+    try{
+      if(!provider) return;
+      const amt = parseFloat(withdrawAmount.value);
+      const to = withdrawAddress.value.trim();
+      if(!amt || !ethers.utils.isAddress(to)) { gasEstimate.textContent='~0.0005 BNB'; return }
+      const t = token.connect(signer || provider);
+      const est = await t.estimateGas.transfer(to, ethers.utils.parseUnits(String(amt), tokenDecimals));
+      const gp = await provider.getGasPrice();
+      const cost = est.mul(gp);
+      gasEstimate.textContent = '~' + Number(ethers.utils.formatEther(cost)).toFixed(6) + ' BNB';
+    }catch{ gasEstimate.textContent='~0.0005 BNB' }
+  }
+  withdrawAmount.addEventListener('input', updateGas);
+  withdrawAddress.addEventListener('input', updateGas);
+
+  withdrawBtn.onclick = async ()=>{
+    if(!account) return toast('Connect wallet first');
+    const amt = withdrawAmount.value.trim();
+    const to = withdrawAddress.value.trim();
+    if(!amt || isNaN(amt) || Number(amt)<=0) return toast('Enter valid ECE amount');
+    if(!ethers.utils.isAddress(to)) return toast('Enter valid BSC destination address');
+    try{
+      await ensureBSC();
+      const t = token.connect(signer);
+      const amountWei = ethers.utils.parseUnits(amt, tokenDecimals);
+      await updateGas();
+      const tx = await t.transfer(to, amountWei);
+      txStatus.style.display='block';
+      txStatus.innerHTML = `<div class="check">✓</div><div>Transaction submitted...<br><a href="${toBscScanTx(tx.hash)}" target="_blank">View on BscScan</a></div>`;
+      await tx.wait();
+      txStatus.innerHTML = `<div class="check">✓</div><div class="success" style="font-weight:800">Withdrawal Successful</div><div style="margin-top:6px"><a href="${toBscScanTx(tx.hash)}" target="_blank">${tx.hash.slice(0,10)}…${tx.hash.slice(-8)}</a></div>`;
+      toast('Withdrawal confirmed on-chain');
+      loadBalances(); fetchTx();
+    }catch(e){
+      console.error(e);
+      txStatus.style.display='block';
+      txStatus.innerHTML = `<div style="color:var(--danger);font-weight:700">Transaction failed or rejected</div><div class="hint">${(e?.data?.message || e.message || '').slice(0,120)}</div>`;
+    }
+  };
+  quickTrust.onclick = ()=>{ withdrawAddress.focus(); toast('Paste your Trust Wallet BSC address') };
+  quickSafe.onclick = ()=>{ withdrawAddress.focus(); toast('Paste your SafePal BSC address') };
+
+  // Transparency
+  async function fetchTx(){
+    txTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:18px">Loading...</td></tr>`;
+    try{
+      const url = `https://api.bscscan.com/api?module=account&action=tokentx&contractaddress=${TOKEN_ADDRESS}&page=1&offset=25&sort=desc`;
+      const res = await fetch(url);
+      const data = await res.json();
+      let txs = [];
+      if(data.status === "1" && Array.isArray(data.result)) txs = data.result;
+      else throw new Error('fallback');
+      renderTx(txs);
+    }catch{
+      // Fallback demo if API blocked
+      const now = Math.floor(Date.now()/1000);
+      const demo = Array.from({length:14}).map((_,i)=>({
+        timeStamp: now - i* 187,
+        from: '0x0000000000000000000000000000000000000000',
+        to: TREASURY_ADDRESS,
+        value: (Math.floor(Math.random()*5000)+100 + '000000000000000000'),
+        hash: '0x' + [...Array(64)].map(()=>Math.floor(Math.random()*16).toString(16)).join(''),
+        tokenDecimal: String(tokenDecimals)
+      }));
+      renderTx(demo, true);
+    }
+  }
+  function renderTx(txs, demo=false){
+    const my = (account||'').toLowerCase();
+    const filtered = filterMy.checked && my ? txs.filter(t=> t.from.toLowerCase()===my || t.to.toLowerCase()===my) : txs;
+    if(filtered.length===0){
+      txTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:18px">No transfers found</td></tr>`; return;
+    }
+    txTableBody.innerHTML = '';
+    filtered.slice(0,25).forEach(t=>{
+      const time = new Date(Number(t.timeStamp)*1000).toISOString().replace('T',' ').slice(0,19);
+      const amt = Number(ethers.utils.formatUnits(t.value, t.tokenDecimal || tokenDecimals)).toLocaleString(undefined,{maximumFractionDigits:2});
+      const fromS = short(t.from), toS = short(t.to);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${time}</td>
+        <td><a class="addr" href="${toBscScanAddr(t.from)}" target="_blank" title="${t.from}">${fromS}</a></td>
+        <td><a class="addr" href="${toBscScanAddr(t.to)}" target="_blank" title="${t.to}">${toS}</a></td>
+        <td style="font-weight:700;color:var(--gold)">${amt}</td>
+        <td><a href="${toBscScanTx(t.hash)}" target="_blank">View ↗</a></td>
+      `;
+      txTableBody.appendChild(tr);
+    });
+    if(demo){
+      const note = document.createElement('tr');
+      note.innerHTML = `<td colspan="5" style="text-align:center;color:var(--muted);padding:10px">Demo data shown (BscScan API rate-limited). Connect wallet for live.</td>`;
+      txTableBody.appendChild(note);
+    }
+  }
+  refreshTx.onclick = fetchTx;
+  filterMy.onchange = fetchTx;
+  setInterval(fetchTx, 20000);
+
+  // Init
+  connectBtn.onclick = connectWallet;
+  disconnectBtn.onclick = disconnect;
+  treasuryAddr.value = TREASURY_ADDRESS;
+
+  // Auto-connect if previously authorized
+  (async ()=>{
+    if(window.ethereum){
+      provider = new ethers.providers.Web3Provider(window.ethereum, 'any');
+      const accs = await provider.listAccounts();
+      if(accs && accs.length){
+        signer = provider.getSigner(); account = accs[0];
+        await initContracts(); updateUIConnected(); updateNetwork(); loadBalances(); setListeners();
+      }else{ updateNetwork() }
+    }
+    fetchTx();
+    setLang('en');
+  })();
+
+})();
+</script>
+</body>
+</html>
